@@ -445,6 +445,12 @@ Modified heavily for the ESP32 HUB75 DMA library by:
     _double_dma_buffer = true;
   }
 
+  void Bus_Parallel16::enable_triple_dma_desc(void)
+  {
+    _triple_dma_buffer = true;
+    _double_dma_buffer = true; // Triple buffering requires double buffer infrastructure
+  }
+
   // Need this to work for double buffers etc.
   bool Bus_Parallel16::allocate_dma_desc_memory(size_t len)
   {
@@ -478,10 +484,27 @@ Modified heavily for the ESP32 HUB75 DMA library by:
         _double_dma_buffer = false;
         return false;
       }
+
+      if (_triple_dma_buffer)
+      {
+        if (_dmadesc_c) heap_caps_free(_dmadesc_c); // free all dma descrptios previously
+
+        ESP_LOGD("ESP32/S2", "Allocating the third buffer (triple buffer enabled).");              
+
+        _dmadesc_c = (HUB75_DMA_DESCRIPTOR_T*)heap_caps_malloc(sizeof(HUB75_DMA_DESCRIPTOR_T) * len, MALLOC_CAP_DMA);
+
+        if (_dmadesc_c == nullptr)
+        {
+          ESP_LOGE("ESP32/S2", "ERROR: Couldn't malloc _dmadesc_c. Not enough memory.");
+          _triple_dma_buffer = false;
+          return false;
+        }
+      }
     }
     
     _dmadesc_a_idx  = 0;
     _dmadesc_b_idx  = 0;
+    _dmadesc_c_idx  = 0;
 
     ESP_LOGD("ESP32/S2", "Allocating %d bytes of memory for DMA descriptors.", (int)sizeof(HUB75_DMA_DESCRIPTOR_T) * len);       
 
@@ -502,7 +525,7 @@ Modified heavily for the ESP32 HUB75 DMA library by:
 
   }
 
-  void Bus_Parallel16::create_dma_desc_link(void *data, size_t size, bool dmadesc_b)
+  void Bus_Parallel16::create_dma_desc_link(void *data, size_t size, int buffer_id)
   {
     static constexpr size_t MAX_DMA_LEN = (4096-4);
 
@@ -512,7 +535,7 @@ Modified heavily for the ESP32 HUB75 DMA library by:
       ESP_LOGW("ESP32/S2", "Creating DMA descriptor which links to payload with size greater than MAX_DMA_LEN!");            
     }
 
-    if ( !dmadesc_b )
+    if ( buffer_id == 0 )
     {
       if ( (_dmadesc_a_idx+1) > _dmadesc_count) {
         ESP_LOGE("ESP32/S2", "Attempted to create more DMA descriptors than allocated memory for. Expecting a maximum of %u DMA descriptors", (unsigned int)_dmadesc_count);          
@@ -524,14 +547,21 @@ Modified heavily for the ESP32 HUB75 DMA library by:
     volatile lldesc_t *next;
     bool eof = false;
     
-    if ( (dmadesc_b == true) ) // for primary buffer
+    if ( buffer_id == 2 ) // third buffer
+    {
+        dmadesc      = &_dmadesc_c[_dmadesc_c_idx];
+
+        next = (_dmadesc_c_idx < (_dmadesc_last) ) ? &_dmadesc_c[_dmadesc_c_idx+1]:_dmadesc_c;       
+        eof  = (_dmadesc_c_idx == (_dmadesc_last));
+    }
+    else if ( buffer_id == 1 ) // second buffer
     {
         dmadesc      = &_dmadesc_b[_dmadesc_b_idx];
 
         next = (_dmadesc_b_idx < (_dmadesc_last) ) ? &_dmadesc_b[_dmadesc_b_idx+1]:_dmadesc_b;       
         eof  = (_dmadesc_b_idx == (_dmadesc_last));
     }
-    else
+    else // first buffer (buffer_id == 0)
     {
         dmadesc      = &_dmadesc_a[_dmadesc_a_idx];
 
@@ -553,9 +583,11 @@ Modified heavily for the ESP32 HUB75 DMA library by:
     dmadesc->qe.stqe_next = (lldesc_t*) next;         
     dmadesc->offset   = 0;       
 
-    if ( (dmadesc_b == true) ) { // for primary buffer
+    if ( buffer_id == 2 ) { // third buffer
+      _dmadesc_c_idx++; 
+    } else if ( buffer_id == 1 ) { // second buffer
       _dmadesc_b_idx++; 
-    } else {
+    } else { // first buffer
       _dmadesc_a_idx++; 
     }
   
@@ -599,19 +631,30 @@ Modified heavily for the ESP32 HUB75 DMA library by:
       // Setup interrupt handler which is focussed only on the (page 322 of Tech. Ref. Manual)
       // "I2S_OUT_EOF_INT: Triggered when rxlink has finished sending a packet" (when dma linked list with eof = 1 is hit)
   	  
-      if ( buffer_id == 1) { 
+      if ( buffer_id == 2) { // buffer 2 (third buffer for triple buffering)
+
+		//fix _dmadesc_ loop issue #407
+		//need to connect the up comming _dmadesc_ not the old one
+		_dmadesc_c[_dmadesc_last].qe.stqe_next = &_dmadesc_c[0];	  
+
+		_dmadesc_a[_dmadesc_last].qe.stqe_next = &_dmadesc_c[0]; 
+		_dmadesc_b[_dmadesc_last].qe.stqe_next = &_dmadesc_c[0]; // Start sending out _dmadesc_c (or buffer 2)
+		      
+      } else if ( buffer_id == 1) { // buffer 1
 
 		//fix _dmadesc_ loop issue #407
 		//need to connect the up comming _dmadesc_ not the old one
 		_dmadesc_b[_dmadesc_last].qe.stqe_next = &_dmadesc_b[0];	  
 
-		_dmadesc_a[_dmadesc_last].qe.stqe_next = &_dmadesc_b[0]; // Start sending out _dmadesc_b (or buffer 1)
+		_dmadesc_a[_dmadesc_last].qe.stqe_next = &_dmadesc_b[0]; 
+		if (_triple_dma_buffer) _dmadesc_c[_dmadesc_last].qe.stqe_next = &_dmadesc_b[0]; // Start sending out _dmadesc_b (or buffer 1)
 		      
-      } else { 
+      } else { // buffer 0
 
         _dmadesc_a[_dmadesc_last].qe.stqe_next = &_dmadesc_a[0];
 	      
         _dmadesc_b[_dmadesc_last].qe.stqe_next = &_dmadesc_a[0]; // Start sending out _dmadesc_a (or buffer 0)
+        if (_triple_dma_buffer) _dmadesc_c[_dmadesc_last].qe.stqe_next = &_dmadesc_a[0];
 		
       }
 

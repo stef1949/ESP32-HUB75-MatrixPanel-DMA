@@ -45,7 +45,15 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 
   size_t allocated_fb_memory = 0;
 
-  int fbs_required = (m_cfg.double_buff) ? 2 : 1;
+  int fbs_required = 1;
+  if (m_cfg.triple_buff)
+  {
+    fbs_required = 3;
+  }
+  else if (m_cfg.double_buff)
+  {
+    fbs_required = 2;
+  }
 
   for (int fb = 0; fb < (fbs_required); fb++)
   {
@@ -162,7 +170,9 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
    * Step 3:  Allocate the DMA descriptor memory via. the relevant platform DMA implementation class.
    */
 
-  if (m_cfg.double_buff) {
+  if (m_cfg.triple_buff) {
+    dma_bus.enable_triple_dma_desc();
+  } else if (m_cfg.double_buff) {
     dma_bus.enable_double_dma_desc();
   }
 
@@ -194,7 +204,7 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 			// Log the current descriptor number and the payload size being used.
 			//ESP_LOGV("I2S-DMA", "Processing dma_desc_all: %d, payload_bytes: %zu, memory location: %p", dma_desc_all, payload_bytes, (frame_buffer[fb].rowBits[row]->getDataPtr(0)+(dma_desc_all*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE)))));
 				
-		    dma_bus.create_dma_desc_link(frame_buffer[fb].rowBits[row]->getDataPtr(0)+(dma_desc_all*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE))), payload_bytes, (fb==1));
+		    dma_bus.create_dma_desc_link(frame_buffer[fb].rowBits[row]->getDataPtr(0)+(dma_desc_all*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE))), payload_bytes, fb);
 			_dmadescriptor_count++;
 			
 			// Log the updated descriptor count after each operation.
@@ -218,7 +228,7 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 				// Log the current bit and the corresponding payload size.
 				//ESP_LOGV("I2S-DMA", "Processing dma_desc_1cdepth: %d, payload_bytes: %zu, memory location: %p", dma_desc_1cdepth, payload_bytes, (frame_buffer[fb].rowBits[row]->getDataPtr(i)+(dma_desc_1cdepth*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE)))));
 		
-				dma_bus.create_dma_desc_link(frame_buffer[fb].rowBits[row]->getDataPtr(i)+(dma_desc_1cdepth*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE))), payload_bytes, (fb==1));
+				dma_bus.create_dma_desc_link(frame_buffer[fb].rowBits[row]->getDataPtr(i)+(dma_desc_1cdepth*(DMA_MAX/sizeof(ESP32_I2S_DMA_STORAGE_TYPE))), payload_bytes, fb);
 				_dmadescriptor_count++;
 				
 				// Log the updated descriptor count after each operation.

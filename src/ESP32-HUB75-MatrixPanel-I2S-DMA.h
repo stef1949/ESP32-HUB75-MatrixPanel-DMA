@@ -303,6 +303,9 @@ struct HUB75_I2S_CFG
 
   // use DMA double buffer (twice as much RAM required)
   bool double_buff;
+  
+  // use DMA triple buffer (three times as much RAM required)
+  bool triple_buff;
 
   // I2S clock speed
   clk_speed i2sspeed;
@@ -342,12 +345,13 @@ struct HUB75_I2S_CFG
       shift_driver _drv = SHIFTREG, 
       line_driver _line_drv = TYPE138,
       bool _dbuff = false, 
+      bool _tbuff = false,
       clk_speed _i2sspeed = HZ_8M,
       uint8_t _latblk = DEFAULT_LAT_BLANKING, // Anything > 1 seems to cause artefacts on ICS panels
       bool _clockphase = true, 
       uint16_t _min_refresh_rate = 60, 
       uint8_t _pixel_color_depth_bits = PIXEL_COLOR_DEPTH_BITS_DEFAULT) 
-      : mx_width(_w), mx_height(_h), chain_length(_chain), gpio(_pinmap), driver(_drv), double_buff(_dbuff), i2sspeed(_i2sspeed), latch_blanking(_latblk), clkphase(_clockphase), min_refresh_rate(_min_refresh_rate)
+      : mx_width(_w), mx_height(_h), chain_length(_chain), gpio(_pinmap), driver(_drv), double_buff(_dbuff), triple_buff(_tbuff), i2sspeed(_i2sspeed), latch_blanking(_latblk), clkphase(_clockphase), min_refresh_rate(_min_refresh_rate)
   {
     setPixelColorDepthBits(_pixel_color_depth_bits);
   }
@@ -633,19 +637,24 @@ public:
 
   inline void flipDMABuffer()
   {
-    if (!m_cfg.double_buff)
+    if (!m_cfg.double_buff && !m_cfg.triple_buff)
     {
       return;
     }
 	
     dma_bus.flip_dma_output_buffer(back_buffer_id);
 	
-	//back_buffer_id ^= 1;
-	back_buffer_id = back_buffer_id^1;
+    if (m_cfg.triple_buff)
+    {
+      // Triple buffer: cycle through 0 -> 1 -> 2 -> 0
+      back_buffer_id = (back_buffer_id + 1) % 3;
+    }
+    else
+    {
+      // Double buffer: toggle between 0 and 1
+      back_buffer_id = back_buffer_id ^ 1;
+    }
     fb = &frame_buffer[back_buffer_id];	
-	
-
-	
   }
 
   /**
@@ -665,6 +674,12 @@ public:
     if (m_cfg.double_buff)
     {
       setBrightnessOE(b, 1);
+    }
+    
+    if (m_cfg.triple_buff)
+    {
+      setBrightnessOE(b, 1);
+      setBrightnessOE(b, 2);
     }
   }
 
@@ -887,7 +902,7 @@ private:
    * Since it's dimensions is unknown prior to class initialization, we just declare it here as empty struct and will do all allocations later.
    * Refer to rowBitStruct to get the idea of it's internal structure
    */
-  frameStruct frame_buffer[2];
+  frameStruct frame_buffer[3];
   frameStruct *fb; // What framebuffer we are writing pixel changes to? (pointer to either frame_buffer[0] or frame_buffer[1] basically ) used within updateMatrixDMABuffer(...)
 
   volatile int back_buffer_id = 0;      // If using double buffer, which one is NOT active (ie. being displayed) to write too?
