@@ -350,7 +350,7 @@
       
       if (_triple_dma_buffer)
       {
-        _dmadesc_c= (HUB75_DMA_DESCRIPTOR_T*)heap_caps_malloc(sizeof(HUB75_DMA_DESCRIPTOR_T) * len, MALLOC_CAP_DMA);
+        _dmadesc_c = (HUB75_DMA_DESCRIPTOR_T*)heap_caps_malloc(sizeof(HUB75_DMA_DESCRIPTOR_T) * len, MALLOC_CAP_DMA);
       
         if (_dmadesc_c == nullptr)
         {
