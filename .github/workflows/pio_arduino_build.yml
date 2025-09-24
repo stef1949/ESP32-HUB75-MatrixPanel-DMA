@@ -2,7 +2,7 @@
 # For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
 # https://docs.platformio.org/en/latest/integration/ci/github-actions.html
 
-name: PlatformIO 6.1.17 Arduino CI
+name: PlatformIO Arduino CI
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
       with:
         python-version: '3.x'
     - name: Install Platformio
-      run: pip install --upgrade platformio==6.1.17
+      run: pip install --upgrade platformio
     - name: Run PlatformIO CI (Arduino)
       if: ${{ matrix.framework == 'Arduino'}}
       env: 
@@ -61,4 +61,4 @@ jobs:
         PLATFORMIO_BUILD_FLAGS: -DIDF_BUILD ${{ matrix.no_gfx != 'none' && format('-DIDF_BUILD {0}', matrix.no_gfx) || '-DIDF_BUILD' }}
       # pio ci doesn't use our sdkconfig, so we have to use pio run
       #run: pio run -d ${{ matrix.example }} -e esp32idf -c ${{ matrix.example }}/platformio.ini
-      run: pio run -d ${{ matrix.example }}
+      run: pio run -d ${{ matrix.example }} -e esp32idf
