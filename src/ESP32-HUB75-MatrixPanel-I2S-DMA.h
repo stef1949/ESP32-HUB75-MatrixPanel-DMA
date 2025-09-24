@@ -305,6 +305,7 @@ struct HUB75_I2S_CFG
   bool double_buff;
   
   // use DMA triple buffer (three times as much RAM required)
+  // Note: if both double_buff and triple_buff are true, triple buffering will be used
   bool triple_buff;
 
   // I2S clock speed

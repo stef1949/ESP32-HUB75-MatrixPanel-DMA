@@ -46,13 +46,24 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
   size_t allocated_fb_memory = 0;
 
   int fbs_required = 1;
+  if (m_cfg.triple_buff && m_cfg.double_buff)
+  {
+    ESP_LOGW("I2S-DMA", "Both triple_buff and double_buff are enabled. Using triple buffering (3 buffers).");
+  }
+  
   if (m_cfg.triple_buff)
   {
     fbs_required = 3;
+    ESP_LOGI("I2S-DMA", "Triple buffering enabled - using 3 frame buffers.");
   }
   else if (m_cfg.double_buff)
   {
     fbs_required = 2;
+    ESP_LOGI("I2S-DMA", "Double buffering enabled - using 2 frame buffers.");
+  }
+  else
+  {
+    ESP_LOGI("I2S-DMA", "Single buffering - using 1 frame buffer.");
   }
 
   for (int fb = 0; fb < (fbs_required); fb++)
