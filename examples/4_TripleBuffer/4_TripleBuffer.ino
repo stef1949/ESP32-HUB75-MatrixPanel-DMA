@@ -95,9 +95,12 @@ void loop()
   display->clearScreen();   
 
   // More complex drawing routine to demonstrate triple buffering benefits
-  // This simulates a more intensive rendering workload
-  delay(10); // Simulate complex rendering operations
- 
+  // This simulates a more intensive rendering workload with actual computation
+  // Simulate complex rendering operations with a small CPU-bound loop
+  volatile uint32_t dummy = 0;
+  for (int j = 0; j < 1000; ++j) {
+    dummy += j * j;
+  }
 
   for (int i = 0; i < numSquares; i++)
   {
