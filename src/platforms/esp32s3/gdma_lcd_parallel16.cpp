@@ -315,6 +315,13 @@
        _double_dma_buffer = true;
   }
 
+  void Bus_Parallel16::enable_triple_dma_desc(void)
+  {
+        ESP_LOGI("S3", "Enabled support for triple DMA buffer.");    
+       _triple_dma_buffer = true;
+       _double_dma_buffer = true; // Triple buffering requires double buffer infrastructure
+  }
+
   // Need this to work for double buffers etc.
   bool Bus_Parallel16::allocate_dma_desc_memory(size_t len)
   {
@@ -340,17 +347,29 @@
         ESP_LOGE("S3", "ERROR: Couldn't malloc _dmadesc_b. Not enough memory.");
         _double_dma_buffer = false;
       }
+      
+      if (_triple_dma_buffer)
+      {
+        _dmadesc_c = (HUB75_DMA_DESCRIPTOR_T*)heap_caps_malloc(sizeof(HUB75_DMA_DESCRIPTOR_T) * len, MALLOC_CAP_DMA);
+      
+        if (_dmadesc_c == nullptr)
+        {
+          ESP_LOGE("S3", "ERROR: Couldn't malloc _dmadesc_c. Not enough memory.");
+          _triple_dma_buffer = false;
+        }
+      }
     }
 
     /// override static 
     _dmadesc_a_idx = 0;
     _dmadesc_b_idx = 0;
+    _dmadesc_c_idx = 0;
 
     return true;
 
   }
 
-  void Bus_Parallel16::create_dma_desc_link(void *data, size_t size, bool dmadesc_b)
+  void Bus_Parallel16::create_dma_desc_link(void *data, size_t size, int buffer_id)
   {
     static constexpr size_t MAX_DMA_LEN = (4096-4);
 
@@ -359,7 +378,27 @@
       ESP_LOGW("S3", "Creating DMA descriptor which links to payload with size greater than MAX_DMA_LEN!");            
     }
 
-    if ( dmadesc_b == true)
+    if ( buffer_id == 2) // third buffer
+    {
+
+      _dmadesc_c[_dmadesc_c_idx].dw0.owner = DMA_DESCRIPTOR_BUFFER_OWNER_DMA;
+      //_dmadesc_c[_dmadesc_c_idx].dw0.suc_eof = 0;   
+      _dmadesc_c[_dmadesc_c_idx].dw0.suc_eof = (_dmadesc_c_idx == (_dmadesc_count-1));
+      _dmadesc_c[_dmadesc_c_idx].dw0.size = _dmadesc_c[_dmadesc_c_idx].dw0.length = size; //sizeof(data);
+      _dmadesc_c[_dmadesc_c_idx].buffer = data; //data;
+
+      if (_dmadesc_c_idx == _dmadesc_count-1) {
+          _dmadesc_c[_dmadesc_c_idx].next =  (dma_descriptor_t *) &_dmadesc_c[0]; 
+      }
+      else {
+          _dmadesc_c[_dmadesc_c_idx].next =  (dma_descriptor_t *) &_dmadesc_c[_dmadesc_c_idx+1]; 
+      }
+
+      _dmadesc_c_idx++;
+
+
+    }
+    else if ( buffer_id == 1) // second buffer
     {
 
       _dmadesc_b[_dmadesc_b_idx].dw0.owner = DMA_DESCRIPTOR_BUFFER_OWNER_DMA;
@@ -379,7 +418,7 @@
 
 
     }
-    else
+    else // first buffer (buffer_id == 0)
     {
         
       if ( _dmadesc_a_idx >= _dmadesc_count)
@@ -396,7 +435,7 @@
 
       if (_dmadesc_a_idx == _dmadesc_count-1) {
           _dmadesc_a[_dmadesc_a_idx].next =  (dma_descriptor_t *) &_dmadesc_a[0]; 
-			ESP_LOGV("S3", "Creating last _dmadesc_a descriptor which loops back to _dmadesc_a[0]!");     		  
+          ESP_LOGV("S3", "Creating last _dmadesc_a descriptor which loops back to _dmadesc_a[0]!");     		  
       }
       else {
           _dmadesc_a[_dmadesc_a_idx].next =  (dma_descriptor_t *) &_dmadesc_a[_dmadesc_a_idx+1]; 
@@ -431,15 +470,23 @@
   void Bus_Parallel16::flip_dma_output_buffer(int back_buffer_id)
   {
 	  
-    if ( back_buffer_id == 1) // change across to everything 'b''
+    if ( back_buffer_id == 2) // change across to everything 'c' (third buffer)
+    {
+       _dmadesc_c[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_c[0];  // setup loop     
+       _dmadesc_a[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_c[0];  // flip across
+       _dmadesc_b[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_c[0];  // flip across    
+    }
+    else if ( back_buffer_id == 1) // change across to everything 'b''
     {
        _dmadesc_b[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_b[0];  // setup loop     
-       _dmadesc_a[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_b[0];  // flip across    
+       _dmadesc_a[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_b[0];  // flip across
+       if (_triple_dma_buffer) _dmadesc_c[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_b[0];  // flip across    
     }
     else
     {
        _dmadesc_a[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_a[0];  // setup loop    
-       _dmadesc_b[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_a[0];  // flip across         
+       _dmadesc_b[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_a[0];  // flip across
+       if (_triple_dma_buffer) _dmadesc_c[_dmadesc_count-1].next =  (dma_descriptor_t *) &_dmadesc_a[0];  // flip across         
     }
 /*   
     previousBufferFree = false;  
