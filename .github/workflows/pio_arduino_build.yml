@@ -42,7 +42,7 @@ jobs:
         path: |
           ~/.cache/pip
           ~/.platformio/.cache
-          key: ${{ runner.os }}-pio-${{ matrix.framework || 'none' }}-${{ matrix.no_gfx || 'none' }}
+        key: ${{ runner.os }}-pio-${{ matrix.framework || 'none' }}-${{ matrix.no_gfx || 'none' }}
     - name: Set up Python 3.x
       uses: actions/setup-python@v6
       with:
