@@ -9,7 +9,7 @@ When you are ready to start your first project with this library, follow folow t
   1. Copy the files in this folder (and sub folders) into a new directory for your project.
   1. Clone the required repositories:
      ```
-     git clone https://github.com/mrfaptastic/ESP32-HUB75-MatrixPanel-DMA.git components/ESP32-HUB75-MatrixPanel-I2S-DMA
+     git clone https://github.com/mrcodetastic/ESP32-HUB75-MatrixPanel-DMA.git components/ESP32-HUB75-MatrixPanel-I2S-DMA
      git clone https://github.com/adafruit/Adafruit-GFX-Library.git components/Adafruit-GFX-Library
      git clone https://github.com/adafruit/Adafruit_BusIO.git components/Adafruit_BusIO
      git clone https://github.com/espressif/arduino-esp32.git components/arduino

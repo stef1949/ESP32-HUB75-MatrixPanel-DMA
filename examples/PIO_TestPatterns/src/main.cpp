@@ -392,7 +392,9 @@ void loop(){
 
 
 void buffclear(CRGB *buf){
-  memset(buf, 0x00, NUM_LEDS * sizeof(CRGB)); // flush buffer to black  
+  for(int i = 0; i < NUM_LEDS; i++) {
+    buf[i] = CRGB::Black;
+  }
 }
 
 void IRAM_ATTR mxfill(CRGB *leds){
