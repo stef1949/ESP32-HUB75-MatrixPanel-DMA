@@ -115,9 +115,10 @@ i2s_dev_t* getDev();
     void release(void) ;
 
     void enable_double_dma_desc();
+    void enable_triple_dma_desc();
     bool allocate_dma_desc_memory(size_t len);
 
-    void create_dma_desc_link(void *memory, size_t size, bool dmadesc_b = false);
+    void create_dma_desc_link(void *memory, size_t size, int buffer_id = 0);
 
     void dma_transfer_start();
     void dma_transfer_stop();
@@ -131,6 +132,7 @@ i2s_dev_t* getDev();
     config_t _cfg;
 
     bool    _double_dma_buffer  = false;
+    bool    _triple_dma_buffer  = false;
     //bool    _dmadesc_a_active   = true;
 
     uint32_t _dmadesc_count  = 0;   // number of dma decriptors
@@ -138,9 +140,11 @@ i2s_dev_t* getDev();
 
     uint32_t _dmadesc_a_idx  = 0;
     uint32_t _dmadesc_b_idx  = 0;
+    uint32_t _dmadesc_c_idx  = 0;
 
     HUB75_DMA_DESCRIPTOR_T* _dmadesc_a = nullptr;
     HUB75_DMA_DESCRIPTOR_T* _dmadesc_b = nullptr; 
+    HUB75_DMA_DESCRIPTOR_T* _dmadesc_c = nullptr; 
 
 /*
     HUB75_DMA_DESCRIPTOR_T* _dmadesc_blank = nullptr;     
