@@ -1,0 +1,6 @@
+{
+  "name": "tool-scons",
+  "version": "4.40801.0",
+  "description": "Local fallback SCons package for proxy-constrained CI",
+  "system": ["linux_x86_64"]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "tool-mklittlefs",
+  "version": "4.1.0",
+  "description": "Local fallback package for CI/proxy-constrained builds",
+  "system": ["linux_x86_64"]
+}

@@ -4,6 +4,7 @@
 /* Core ESP32 hardware / idf includes!                                                 */
 #include <vector>
 #include <memory>
+#include <stdint.h>
 #include <esp_err.h>
 #include <esp_log.h>
 #include "esp_attr.h"
@@ -386,6 +387,26 @@ class MatrixPanel_I2S_DMA
 
   // ------- PUBLIC -------
 public:
+#if defined(HUB75_DMA_BENCHMARK)
+  struct BenchmarkStats
+  {
+    uint32_t update_pixel_calls = 0;
+    uint32_t update_full_frame_calls = 0;
+    uint32_t hline_calls = 0;
+    uint32_t vline_calls = 0;
+    uint32_t clear_calls = 0;
+    uint64_t update_pixel_us = 0;
+    uint64_t update_full_frame_us = 0;
+    uint64_t hline_us = 0;
+    uint64_t vline_us = 0;
+    uint64_t clear_us = 0;
+    uint64_t brightness_oe_us = 0;
+    uint32_t brightness_oe_calls = 0;
+    size_t dma_framebuffer_bytes = 0;
+    size_t dma_descriptor_bytes = 0;
+  };
+#endif
+
   /**
    * MatrixPanel_I2S_DMA
    *
@@ -857,6 +878,12 @@ public:
    */
   int calculated_refresh_rate = 0;
 
+#if defined(HUB75_DMA_BENCHMARK)
+  void resetBenchmarkStats() { benchmark_stats = BenchmarkStats{}; }
+  BenchmarkStats getBenchmarkStats() const { return benchmark_stats; }
+  void logBenchmarkStats(const char *tag = "I2S-DMA-BENCH") const;
+#endif
+
 protected:
   Bus_Parallel16 dma_bus;
 
@@ -891,6 +918,10 @@ private:
   // Other private variables
   bool initialized = false;
   bool config_set = false;
+
+#if defined(HUB75_DMA_BENCHMARK)
+  BenchmarkStats benchmark_stats;
+#endif
 
 }; // end Class header
 
