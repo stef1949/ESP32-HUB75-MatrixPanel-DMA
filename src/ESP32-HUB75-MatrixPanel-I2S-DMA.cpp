@@ -1,4 +1,7 @@
 #include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
+#if defined(HUB75_DMA_BENCHMARK)
+#include "esp_timer.h"
+#endif
 
 #if defined(SPIRAM_DMA_BUFFER)
 // Sprite_TM saves the day again...
@@ -14,6 +17,28 @@
 
 // BufferID is now ignored, seperate global pointer pointer!
 #define getRowDataPtr(row, _dpth) &(fb->rowBits[row]->data[_dpth * fb->rowBits[row]->width])
+
+#if defined(HUB75_DMA_BENCHMARK)
+#define HUB75_BENCH_START(var_name) int64_t var_name = esp_timer_get_time()
+#define HUB75_BENCH_ACCUM_US(member, start_var) benchmark_stats.member += (uint64_t)(esp_timer_get_time() - start_var)
+#define HUB75_BENCH_INC(member) ++benchmark_stats.member
+#else
+#define HUB75_BENCH_START(var_name)
+#define HUB75_BENCH_ACCUM_US(member, start_var)
+#define HUB75_BENCH_INC(member)
+#endif
+
+static inline void fillRgbBitplaneLut(uint16_t *lut, uint8_t depth, uint16_t red_val, uint16_t green_val, uint16_t blue_val, uint8_t bit_offset)
+{
+  for (uint8_t idx = 0; idx < depth; ++idx)
+  {
+    const uint16_t mask = (1U << idx);
+    uint16_t rgb = (blue_val & mask) ? 1U : 0U;
+    rgb = (rgb << 1) | ((green_val & mask) ? 1U : 0U);
+    rgb = (rgb << 1) | ((red_val & mask) ? 1U : 0U);
+    lut[idx] = (rgb << bit_offset);
+  }
+}
 
 /* We need to update the correct uint16_t in the rowBitStruct array, that gets sent out in parallel
  * 16 bit parallel mode - Save the calculated value to the bitplane memory in reverse order to account for I2S Tx FIFO mode1 ordering
@@ -132,6 +157,10 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
   }
   ESP_LOGI("I2S-DMA", "Allocating %d bytes memory for DMA BCM framebuffer(s).", allocated_fb_memory);
 
+#if defined(HUB75_DMA_BENCHMARK)
+  benchmark_stats.dma_framebuffer_bytes = allocated_fb_memory;
+#endif
+
 
   /***
    * Step 1: Check what the minimum refresh rate is, and calculate the lsbMsbTransitionBit
@@ -216,6 +245,10 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
 
   // Allocate DMA descriptors 
   int dma_descriptions_required = dma_descriptors_per_row * ROWS_PER_FRAME;
+
+#if defined(HUB75_DMA_BENCHMARK)
+  benchmark_stats.dma_descriptor_bytes = sizeof(HUB75_DMA_DESCRIPTOR_T) * dma_descriptions_required * (m_cfg.double_buff ? 2 : 1);
+#endif
   
   ESP_LOGV("I2S-DMA", "DMA descriptors per row: %d", dma_descriptors_per_row);  
   ESP_LOGV("I2S-DMA", "DMA descriptors required per buffer: %d", dma_descriptions_required);    
@@ -389,6 +422,9 @@ bool MatrixPanel_I2S_DMA::setupDMA(const HUB75_I2S_CFG &_cfg)
  */
 void IRAM_ATTR MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint16_t x_coord, uint16_t y_coord, uint8_t red, uint8_t green, uint8_t blue)
 {
+  HUB75_BENCH_START(_bench_start);
+  HUB75_BENCH_INC(update_pixel_calls);
+
   if (!initialized)
     return;
 
@@ -429,24 +465,16 @@ void IRAM_ATTR MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint16_t x_coord, uint
     y_coord -= ROWS_PER_FRAME;
   }
 
+  const uint8_t depth = m_cfg.getPixelColorDepthBits();
+  uint16_t rgb_lut[PIXEL_COLOR_DEPTH_BITS_MAX];
+  fillRgbBitplaneLut(rgb_lut, depth, red_val, green_val, blue_val, _colourbitoffset);
+
   // Iterating through colour depth bits, which we assume are 8 bits per RGB subpixel (24bpp)
-  uint8_t colour_depth_idx = m_cfg.getPixelColorDepthBits();
+  uint8_t colour_depth_idx = depth;
   do
   {
     --colour_depth_idx;
-
-    // Extract bit at current depth index
-    uint16_t mask = (1 << colour_depth_idx);
-    uint16_t RGB_output_bits = 0;
-
-    /* Per the .h file, the order of the output RGB bits is:
-     * BIT_B2, BIT_G2, BIT_R2,    BIT_B1, BIT_G1, BIT_R1     */
-    RGB_output_bits |= (bool)(blue_val & mask); // --B
-    RGB_output_bits <<= 1;
-    RGB_output_bits |= (bool)(green_val & mask); // -BG
-    RGB_output_bits <<= 1;
-    RGB_output_bits |= (bool)(red_val & mask); // BGR
-    RGB_output_bits <<= _colourbitoffset;    // shift colour bits to the required position
+    const uint16_t RGB_output_bits = rgb_lut[colour_depth_idx];
 
     // Get the contents at this address,
     // it would represent a vector pointing to the full row of pixels for the specified colour depth bit at Y coordinate
@@ -461,33 +489,31 @@ void IRAM_ATTR MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint16_t x_coord, uint
 #endif
 
   } while (colour_depth_idx); // end of colour depth loop (8)
+
+  HUB75_BENCH_ACCUM_US(update_pixel_us, _bench_start);
 } // updateMatrixDMABuffer (specific co-ords change)
 
 
 /* Update the entire buffer with a single specific colour - quicker */
 void MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint8_t red, uint8_t green, uint8_t blue)
 {
+  HUB75_BENCH_START(_bench_start);
+  HUB75_BENCH_INC(update_full_frame_calls);
+
   if (!initialized)
     return;
 
   /* https://ledshield.wordpress.com/2012/11/13/led-brightness-to-your-eye-gamma-correction-no/ */
   DO_BRIGHTNESS_COMPENSATION()  
 
-  for (uint8_t colour_depth_idx = 0; colour_depth_idx < m_cfg.getPixelColorDepthBits(); colour_depth_idx++) // colour depth - 8 iterations
+  const uint8_t depth = m_cfg.getPixelColorDepthBits();
+  uint16_t rgb_lut[PIXEL_COLOR_DEPTH_BITS_MAX];
+  fillRgbBitplaneLut(rgb_lut, depth, red_val, green_val, blue_val, 0);
+
+  for (uint8_t colour_depth_idx = 0; colour_depth_idx < depth; colour_depth_idx++) // colour depth - 8 iterations
   {
     // let's precalculate RGB1 and RGB2 bits than flood it over the entire DMA buffer
-    uint16_t RGB_output_bits = 0;
-
-    // Extract bit at current depth index
-    uint16_t mask = (1 << colour_depth_idx);
-
-    /* Per the .h file, the order of the output RGB bits is:
-     * BIT_B2, BIT_G2, BIT_R2,    BIT_B1, BIT_G1, BIT_R1      */
-    RGB_output_bits |= (bool)(blue_val & mask); // --B
-    RGB_output_bits <<= 1;
-    RGB_output_bits |= (bool)(green_val & mask); // -BG
-    RGB_output_bits <<= 1;
-    RGB_output_bits |= (bool)(red_val & mask); // BGR
+    uint16_t RGB_output_bits = rgb_lut[colour_depth_idx];
 
     // Duplicate and shift across so we have have 6 populated bits of RGB1 and RGB2 pin values suitable for DMA buffer
     RGB_output_bits |= RGB_output_bits << BITS_RGB2_OFFSET; // BGRBGR
@@ -519,6 +545,8 @@ void MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint8_t red, uint8_t green, uint
 
     } while (matrix_frame_parallel_row); // end row iteration
   }                                      // colour depth loop (8)
+
+  HUB75_BENCH_ACCUM_US(update_full_frame_us, _bench_start);
 } // updateMatrixDMABuffer (full frame paint)
 
 /**
@@ -531,6 +559,9 @@ void MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint8_t red, uint8_t green, uint
  */
 void MatrixPanel_I2S_DMA::clearFrameBuffer(bool _buff_id)
 {
+  HUB75_BENCH_START(_bench_start);
+  HUB75_BENCH_INC(clear_calls);
+
   if (!initialized)
     return;
 
@@ -666,19 +697,58 @@ void MatrixPanel_I2S_DMA::clearFrameBuffer(bool _buff_id)
 #endif
 
   } while (row_idx);
+
+  HUB75_BENCH_ACCUM_US(clear_us, _bench_start);
 }
 
 void MatrixPanel_I2S_DMA::setBrightnessOE(uint8_t brt, const int _buff_id)
 {
+  HUB75_BENCH_START(_bench_start);
+  HUB75_BENCH_INC(brightness_oe_calls);
 
   if (!initialized)
     return;
 
   frameStruct *fb = &frame_buffer[_buff_id];
 
-  uint8_t _blank = m_cfg.latch_blanking; // don't want to inadvertantly blast over this
-  uint8_t _depth = fb->rowBits[0]->colour_depth;
-  uint16_t _width = fb->rowBits[0]->width;
+  const uint8_t _blank = m_cfg.latch_blanking; // don't want to inadvertantly blast over this
+  const uint8_t _depth = fb->rowBits[0]->colour_depth;
+  const int16_t _width = fb->rowBits[0]->width;
+  const int16_t width_minus_blank = _width - _blank;
+  const int8_t bitshift = (_depth - lsbMsbTransitionBit - 1) >> 1;
+
+  int16_t x_coord_min_lut[PIXEL_COLOR_DEPTH_BITS_MAX];
+  int16_t x_coord_max_lut[PIXEL_COLOR_DEPTH_BITS_MAX];
+
+  for (uint8_t colouridx = 0; colouridx < _depth; ++colouridx)
+  {
+    const int8_t bitplane = (2 * _depth - colouridx) % _depth;
+    const int8_t rightshift = (bitplane > (bitshift + 2)) ? (bitplane - bitshift - 2) : 0;
+
+    // Calculate the OE disable period by brightness and latch blanking.
+    // First, determine the maximum pixels for this specific bitplane (accounting for PWM time weighting).
+    // Then scale that maximum by brightness (0-255).
+    // This ensures all bitplanes scale proportionally and reach their maximums simultaneously.
+    const int16_t max_pixels_for_bitplane = width_minus_blank >> rightshift;
+    int16_t brightness_in_x_pixels = (max_pixels_for_bitplane * brt) >> 8;
+
+    // Ensure at least 1 pixel is enabled for any brightness > 0
+    if (brt > 0 && brightness_in_x_pixels == 0)
+    {
+      brightness_in_x_pixels = 1;
+    }
+
+    // Safety margin: Ensure we never exceed max_pixels - 1 to maintain blanking headroom.
+    // At extreme brightness (252-255), we need at least (_blank + 1) total blanking pixels
+    // to prevent ghosting and artifacts, especially with high pixel density (many white pixels).
+    if (brightness_in_x_pixels > max_pixels_for_bitplane - 1)
+    {
+      brightness_in_x_pixels = max_pixels_for_bitplane - 1;
+    }
+
+    x_coord_max_lut[colouridx] = (_width + brightness_in_x_pixels + 1) >> 1;
+    x_coord_min_lut[colouridx] = (_width - brightness_in_x_pixels + 0) >> 1;
+  }
 
   // start with iterating all rows in dma_buff structure
   int row_idx = fb->rowBits.size();
@@ -692,37 +762,13 @@ void MatrixPanel_I2S_DMA::setBrightnessOE(uint8_t brt, const int _buff_id)
     {
       --colouridx;
 
-      char bitplane = (2 * _depth - colouridx) % _depth;
-      char bitshift = (_depth - lsbMsbTransitionBit - 1) >> 1;
-
-      char rightshift = std::max(bitplane - bitshift - 2, 0);
-
-      // Calculate the OE disable period by brightness and latch blanking.
-      // First, determine the maximum pixels for this specific bitplane (accounting for PWM time weighting).
-      // Then scale that maximum by brightness (0-255).
-      // This ensures all bitplanes scale proportionally and reach their maximums simultaneously.
-      int max_pixels_for_bitplane = (_width - _blank) >> rightshift;
-      int brightness_in_x_pixels = (max_pixels_for_bitplane * brt) >> 8;
-
-      // Ensure at least 1 pixel is enabled for any brightness > 0
-      if (brt > 0 && brightness_in_x_pixels == 0) {
-        brightness_in_x_pixels = 1;
-      }
-
-      // Safety margin: Ensure we never exceed max_pixels - 1 to maintain blanking headroom.
-      // At extreme brightness (252-255), we need at least (_blank + 1) total blanking pixels
-      // to prevent ghosting and artifacts, especially with high pixel density (many white pixels).
-      if (brightness_in_x_pixels > max_pixels_for_bitplane - 1) {
-        brightness_in_x_pixels = max_pixels_for_bitplane - 1;
-      }
-
       // switch pointer to a row for a specific color index
       ESP32_I2S_DMA_STORAGE_TYPE *row = fb->rowBits[row_idx]->getDataPtr(colouridx);
 
       // define range of Output Enable on the center of the row
-      int x_coord_max = (_width + brightness_in_x_pixels + 1) >> 1;
-      int x_coord_min = (_width - brightness_in_x_pixels + 0) >> 1;
-      int x_coord = _width;
+      const int16_t x_coord_max = x_coord_max_lut[colouridx];
+      const int16_t x_coord_min = x_coord_min_lut[colouridx];
+      int16_t x_coord = _width;
       do
       {
         --x_coord;
@@ -742,12 +788,14 @@ void MatrixPanel_I2S_DMA::setBrightnessOE(uint8_t brt, const int _buff_id)
     } while (colouridx);
 
 #if defined(SPIRAM_DMA_BUFFER)
-	// Force the flush and update of the PSRAM for the memory address range of the 'row data' as
-	// data changes probably aren't being sent out via DMA as they're sitting in a hadrware 'cache' 
+    // Force the flush and update of the PSRAM for the memory address range of the 'row data' as
+    // data changes probably aren't being sent out via DMA as they're sitting in a hadrware 'cache'
     ESP32_I2S_DMA_STORAGE_TYPE *row_ptr = fb->rowBits[row_idx]->getDataPtr(0);
     Cache_WriteBack_Addr((uint32_t)row_ptr, fb->rowBits[row_idx]->getColorDepthSize(false));
 #endif
   } while (row_idx);
+
+  HUB75_BENCH_ACCUM_US(brightness_oe_us, _bench_start);
 }
 
 
@@ -815,6 +863,29 @@ uint8_t MatrixPanel_I2S_DMA::setLatBlanking(uint8_t pulses)
   return m_cfg.latch_blanking;
 }
 
+#if defined(HUB75_DMA_BENCHMARK)
+void MatrixPanel_I2S_DMA::logBenchmarkStats(const char *tag) const
+{
+  ESP_LOGI(tag, "calls: px=%lu full=%lu hline=%lu vline=%lu clear=%lu brt=%lu",
+           (unsigned long)benchmark_stats.update_pixel_calls,
+           (unsigned long)benchmark_stats.update_full_frame_calls,
+           (unsigned long)benchmark_stats.hline_calls,
+           (unsigned long)benchmark_stats.vline_calls,
+           (unsigned long)benchmark_stats.clear_calls,
+           (unsigned long)benchmark_stats.brightness_oe_calls);
+  ESP_LOGI(tag, "time_us: px=%llu full=%llu hline=%llu vline=%llu clear=%llu brt=%llu",
+           (unsigned long long)benchmark_stats.update_pixel_us,
+           (unsigned long long)benchmark_stats.update_full_frame_us,
+           (unsigned long long)benchmark_stats.hline_us,
+           (unsigned long long)benchmark_stats.vline_us,
+           (unsigned long long)benchmark_stats.clear_us,
+           (unsigned long long)benchmark_stats.brightness_oe_us);
+  ESP_LOGI(tag, "memory_bytes: dma_fb=%u dma_desc=%u",
+           (unsigned int)benchmark_stats.dma_framebuffer_bytes,
+           (unsigned int)benchmark_stats.dma_descriptor_bytes);
+}
+#endif
+
 #ifndef NO_FAST_FUNCTIONS
 /**
  * @brief - update DMA buff drawing horizontal line at specified coordinates
@@ -825,6 +896,9 @@ uint8_t MatrixPanel_I2S_DMA::setLatBlanking(uint8_t pulses)
  */
 void MatrixPanel_I2S_DMA::hlineDMA(int16_t x_coord, int16_t y_coord, int16_t l, uint8_t red, uint8_t green, uint8_t blue)
 {
+  HUB75_BENCH_START(_bench_start);
+  HUB75_BENCH_INC(hline_calls);
+
   if (!initialized)
     return;
 
@@ -851,26 +925,16 @@ DO_BRIGHTNESS_COMPENSATION()
     y_coord -= ROWS_PER_FRAME;
   }
 
+  const uint8_t depth = m_cfg.getPixelColorDepthBits();
+  uint16_t rgb_lut[PIXEL_COLOR_DEPTH_BITS_MAX];
+  fillRgbBitplaneLut(rgb_lut, depth, red_val, green_val, blue_val, _colourbitoffset);
+
   // Iterating through colour depth bits (8 iterations)
-  uint8_t colour_depth_idx = m_cfg.getPixelColorDepthBits();
+  uint8_t colour_depth_idx = depth;
   do
   {
     --colour_depth_idx;
-
-    // let's precalculate RGB1 and RGB2 bits than flood it over the entire DMA buffer
-    uint16_t RGB_output_bits = 0;
-
-    // Extract bit at current depth index
-    uint16_t mask = (1 << colour_depth_idx);
-
-    /* Per the .h file, the order of the output RGB bits is:
-     * BIT_B2, BIT_G2, BIT_R2,    BIT_B1, BIT_G1, BIT_R1     */
-    RGB_output_bits |= (bool)(blue_val & mask); // --B
-    RGB_output_bits <<= 1;
-    RGB_output_bits |= (bool)(green_val & mask); // -BG
-    RGB_output_bits <<= 1;
-    RGB_output_bits |= (bool)(red_val & mask); // BGR
-    RGB_output_bits <<= _colourbitoffset;    // shift color bits to the required position
+    const uint16_t RGB_output_bits = rgb_lut[colour_depth_idx];
 
     // Get the contents at this address,
     // it would represent a vector pointing to the full row of pixels for the specified colour depth bit at Y coordinate
@@ -898,6 +962,8 @@ DO_BRIGHTNESS_COMPENSATION()
       v |= RGB_output_bits;   // set new colour bits
     } while (_l);             // iterate pixels in a row
   } while (colour_depth_idx); // end of colour depth loop (8)
+
+  HUB75_BENCH_ACCUM_US(hline_us, _bench_start);
 } // hlineDMA()
 
 /**
@@ -909,6 +975,9 @@ DO_BRIGHTNESS_COMPENSATION()
  */
 void MatrixPanel_I2S_DMA::vlineDMA(int16_t x_coord, int16_t y_coord, int16_t l, uint8_t red, uint8_t green, uint8_t blue)
 {
+  HUB75_BENCH_START(_bench_start);
+  HUB75_BENCH_INC(vline_calls);
+
   if (!initialized)
     return;
 
@@ -923,7 +992,7 @@ void MatrixPanel_I2S_DMA::vlineDMA(int16_t x_coord, int16_t y_coord, int16_t l, 
   // if (y_coord + l > m_cfg.mx_height)
   ///    l = m_cfg.mx_height - y_coord + 1;     // reset width to end of col
 
-  DO_BRIGHTNESS_COMPENSATION() 
+  DO_BRIGHTNESS_COMPENSATION()
 
   /*
   #if defined(ESP32_THE_ORIG)
@@ -933,46 +1002,51 @@ void MatrixPanel_I2S_DMA::vlineDMA(int16_t x_coord, int16_t y_coord, int16_t l, 
   */
   x_coord = ESP32_TX_FIFO_POSITION_ADJUST(x_coord);
 
-  uint8_t colour_depth_idx = m_cfg.getPixelColorDepthBits();
+  const uint8_t depth = m_cfg.getPixelColorDepthBits();
+  uint16_t rgb_top_lut[PIXEL_COLOR_DEPTH_BITS_MAX];
+  uint16_t rgb_bottom_lut[PIXEL_COLOR_DEPTH_BITS_MAX];
+  fillRgbBitplaneLut(rgb_top_lut, depth, red_val, green_val, blue_val, 0);
+  fillRgbBitplaneLut(rgb_bottom_lut, depth, red_val, green_val, blue_val, BITS_RGB2_OFFSET);
+
+  const int16_t y_end = y_coord + l;
+  const int16_t top_end = (y_end < ROWS_PER_FRAME) ? y_end : ROWS_PER_FRAME;
+  const int16_t bottom_start = (y_coord > ROWS_PER_FRAME) ? y_coord : ROWS_PER_FRAME;
+
+  uint8_t colour_depth_idx = depth;
   do
   { // Iterating through colour depth bits (8 iterations)
     --colour_depth_idx;
 
-    // Extract bit at current depth index
-    uint16_t mask = (1 << colour_depth_idx);
-    uint16_t RGB_output_bits = 0;
+    if (y_coord < top_end)
+    {
+      const uint16_t RGB_output_bits = rgb_top_lut[colour_depth_idx];
+      int16_t _y = y_coord;
+      do
+      {
+        ESP32_I2S_DMA_STORAGE_TYPE *p = fb->rowBits[_y]->getDataPtr(colour_depth_idx);
+        p[x_coord] &= BITMASK_RGB1_CLEAR; // reset RGB bits
+        p[x_coord] |= RGB_output_bits;    // set new RGB bits
+        ++_y;
+      } while (_y < top_end);
+    }
 
-    /* Per the .h file, the order of the output RGB bits is:
-     * BIT_B2, BIT_G2, BIT_R2,    BIT_B1, BIT_G1, BIT_R1   */
-    RGB_output_bits |= (bool)(blue_val & mask); // --B
-    RGB_output_bits <<= 1;
-    RGB_output_bits |= (bool)(green_val & mask); // -BG
-    RGB_output_bits <<= 1;
-    RGB_output_bits |= (bool)(red_val & mask); // BGR
-
-    int16_t _l = 0, _y = y_coord;
-    uint16_t _colourbitclear = BITMASK_RGB1_CLEAR;
-    do
-    { // iterate pixels in a column
-
-      if (_y >= ROWS_PER_FRAME)
-      { // if y-coord overlapped bottom-half panel
-        _y -= ROWS_PER_FRAME;
-        _colourbitclear = BITMASK_RGB2_CLEAR;
-        RGB_output_bits <<= BITS_RGB2_OFFSET;
-      }
-
-      // Get the contents at this address,
-      // it would represent a vector pointing to the full row of pixels for the specified colour depth bit at Y coordinate
-      // ESP32_I2S_DMA_STORAGE_TYPE *p = getRowDataPtr(_y, colour_depth_idx, back_buffer_id);
-      ESP32_I2S_DMA_STORAGE_TYPE *p = fb->rowBits[_y]->getDataPtr(colour_depth_idx);
-
-      p[x_coord] &= _colourbitclear; // reset RGB bits
-      p[x_coord] |= RGB_output_bits; // set new RGB bits
-      ++_y;
-    } while (++_l != l);      // iterate pixels in a col
+    if (bottom_start < y_end)
+    {
+      const uint16_t RGB_output_bits = rgb_bottom_lut[colour_depth_idx];
+      int16_t _y = bottom_start;
+      do
+      {
+        ESP32_I2S_DMA_STORAGE_TYPE *p = fb->rowBits[_y - ROWS_PER_FRAME]->getDataPtr(colour_depth_idx);
+        p[x_coord] &= BITMASK_RGB2_CLEAR; // reset RGB bits
+        p[x_coord] |= RGB_output_bits;    // set new RGB bits
+        ++_y;
+      } while (_y < y_end);
+    }
   } while (colour_depth_idx); // end of colour depth loop (8)
+
+  HUB75_BENCH_ACCUM_US(vline_us, _bench_start);
 } // vlineDMA()
+
 
 /**
  * @brief - update DMA buff drawing a rectangular at specified coordinates

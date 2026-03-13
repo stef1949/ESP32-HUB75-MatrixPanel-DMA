@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo "Local fallback mklittlefs package is for compile-only CI runs." >&2
+echo "Please install the official tasmota/tool-mklittlefs package for filesystem image targets." >&2
+exit 1

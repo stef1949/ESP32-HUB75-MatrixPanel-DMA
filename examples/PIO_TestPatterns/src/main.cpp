@@ -10,6 +10,7 @@
 #endif
 
 #include <Arduino.h>
+#include <cstring>
 #include "xtensa/core-macros.h"
 #ifdef VIRTUAL_PANE
 #include <ESP32-VirtualMatrixPanel-I2S-DMA.h>
@@ -392,7 +393,7 @@ void loop(){
 
 
 void buffclear(CRGB *buf){
-  memset(buf, 0x00, NUM_LEDS * sizeof(CRGB)); // flush buffer to black  
+  ::memset(buf, 0x00, NUM_LEDS * sizeof(CRGB)); // flush buffer to black
 }
 
 void IRAM_ATTR mxfill(CRGB *leds){
