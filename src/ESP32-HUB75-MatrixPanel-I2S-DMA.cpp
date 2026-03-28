@@ -1,4 +1,7 @@
 #include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
+#if defined(HUB75_WOKWI_SIM)
+#include "ESP32-HUB75-MatrixPanel-WokwiSim.h"
+#endif
 
 #if defined(SPIRAM_DMA_BUFFER)
 // Sprite_TM saves the day again...
@@ -392,6 +395,13 @@ void IRAM_ATTR MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint16_t x_coord, uint
   if (!initialized)
     return;
 
+#if defined(HUB75_WOKWI_SIM)
+  if (sim_backend) {
+    sim_backend->drawPixel(x_coord, y_coord, red, green, blue);
+    return;
+  }
+#endif
+
   /* 1) Check that the co-ordinates are within range, or it'll break everything big time.
    * Valid co-ordinates are from 0 to (MATRIX_XXXX-1)
    */
@@ -469,6 +479,13 @@ void MatrixPanel_I2S_DMA::updateMatrixDMABuffer(uint8_t red, uint8_t green, uint
 {
   if (!initialized)
     return;
+
+#if defined(HUB75_WOKWI_SIM)
+  if (sim_backend) {
+    sim_backend->fillScreen(red, green, blue);
+    return;
+  }
+#endif
 
   /* https://ledshield.wordpress.com/2012/11/13/led-brightness-to-your-eye-gamma-correction-no/ */
   DO_BRIGHTNESS_COMPENSATION()  

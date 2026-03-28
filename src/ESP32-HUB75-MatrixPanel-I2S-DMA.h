@@ -4,6 +4,7 @@
 /* Core ESP32 hardware / idf includes!                                                 */
 #include <vector>
 #include <memory>
+#include <stdint.h>
 #include <esp_err.h>
 #include <esp_log.h>
 #include "esp_attr.h"
@@ -11,6 +12,10 @@
 
 // #include <Arduino.h>
 #include "platforms/platform_detect.hpp"
+#if defined(HUB75_WOKWI_SIM)
+  #include "ESP32-HUB75-MatrixPanel-Backend.h"
+  #include "ESP32-HUB75-MatrixPanel-WokwiSim.h"
+#endif
 
 #ifdef USE_GFX_LITE
   // Slimmed version of Adafruit GFX + FastLED: https://github.com/mrcodetastic/GFX_Lite
@@ -427,6 +432,15 @@ public:
     if (!config_set)
       return false;
 
+#if defined(HUB75_WOKWI_SIM)
+    sim_backend.reset(new WokwiSimBackend());
+    initialized = sim_backend->begin(m_cfg);
+    if (initialized) {
+      clearScreen();
+    }
+    return initialized;
+#endif
+
     ESP_LOGI("begin()", "Using GPIO %d for R1_PIN", m_cfg.gpio.r1);
     ESP_LOGI("begin()", "Using GPIO %d for G1_PIN", m_cfg.gpio.g1);
     ESP_LOGI("begin()", "Using GPIO %d for B1_PIN", m_cfg.gpio.b1);
@@ -491,6 +505,10 @@ public:
   // Obj destructor
   virtual ~MatrixPanel_I2S_DMA()
   {
+#if defined(HUB75_WOKWI_SIM)
+    if (sim_backend)
+      return;
+#endif
     dma_bus.release();
   }
 
@@ -618,6 +636,12 @@ public:
 
   inline void flipDMABuffer()
   {
+#if defined(HUB75_WOKWI_SIM)
+    if (sim_backend) {
+      sim_backend->flipBuffer();
+      return;
+    }
+#endif
     if (!m_cfg.double_buff)
     {
       return;
@@ -645,6 +669,12 @@ public:
     }
 
     brightness = b;
+#if defined(HUB75_WOKWI_SIM)
+    if (sim_backend) {
+      sim_backend->setBrightness(b);
+      return;
+    }
+#endif
     setBrightnessOE(b, 0);
 
     if (m_cfg.double_buff)
@@ -891,6 +921,10 @@ private:
   // Other private variables
   bool initialized = false;
   bool config_set = false;
+
+#if defined(HUB75_WOKWI_SIM)
+  std::unique_ptr<MatrixPanelBackend> sim_backend;
+#endif
 
 }; // end Class header
 

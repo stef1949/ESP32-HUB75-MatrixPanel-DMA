@@ -1,0 +1,25 @@
+{
+  "name": "HUB75 Sim Panel",
+  "author": "ESP32-HUB75-MatrixPanel-DMA",
+  "pins": [
+    "RX",
+    "GND"
+  ],
+  "controls": [
+    {
+      "id": "surface",
+      "type": "framebuffer",
+      "x": 0,
+      "y": 0,
+      "width": 64,
+      "height": 32,
+      "pixelSize": 8
+    }
+  ],
+  "attrs": [
+    { "name": "width", "type": "number", "default": 64 },
+    { "name": "height", "type": "number", "default": 32 },
+    { "name": "pixelSize", "type": "number", "default": 8 },
+    { "name": "debug", "type": "boolean", "default": false }
+  ]
+}

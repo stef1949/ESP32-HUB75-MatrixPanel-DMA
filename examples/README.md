@@ -12,3 +12,4 @@
 |One_Quarter_1_4_ScanPanel  |Using this library with a 32w x 16h 1/4 Scan LED Matrix Panel. Custom co-ordinate remapping logic required.  NOT WORKING.                             |
 |One_Eighth_1_8_ScanPanel   |Using this library with a 64w x 32h 1/8 Scan LED Matrix Panel. Custom co-ordinate remapping logic required.
 |PIO_TestPatterns           |Non-Arduino example of how to display basic shapes.                                                                    |
+|WokwiSimUART               |Experimental Wokwi simulation backend example (UART stream + custom chip framebuffer rendering).                       |
