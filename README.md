@@ -19,6 +19,7 @@ __[BUILD OPTIONS](/doc/BuildOptions.md) | [EXAMPLES](/examples/README.md)__ | [!
 - [Further Information](#further-information)
   * [Can I chain panels?](#can-i-chain-panels)
   * [Can I use with a larger panel (i.e. 64x64px square panel)?](#can-i-use-with-a-larger-panel-ie-64x64px-square-panel)
+  * [Wokwi Simulation](#wokwi-simulation)
   * [Adjusting Panel Brightness](#adjusting-panel-brightness)
   * [Build-time options](#build-time-options)
   * [Latch blanking](#latch-blanking)
@@ -217,6 +218,16 @@ Finally, if you wanted to chain 4 x (64x32px) panels to make 128x64px display (e
 Resolutions beyond 128x64 are more likely to result in crashes due to [memory](/doc/i2s_memcalc.md) constraints etc. You are on your own after this point - PLEASE do not raise issues about this, the library can't magically defeat the SRAM memory constraints of the ESP32.
 
 ![ezgif com-video-to-gif](https://user-images.githubusercontent.com/12006953/89837358-b64c0480-db60-11ea-870d-4b6482068a3b.gif)
+
+## Wokwi Simulation
+
+This repository includes a Wokwi-specific simulation backend that replaces the real HUB75 DMA scan path with a software framebuffer streamed over UART to a custom Wokwi chip.
+
+- Overview: [doc/WokwiSim.md](/doc/WokwiSim.md)
+- Browser-ready example: [examples/WokwiBrowserSim](/examples/WokwiBrowserSim)
+- VS Code / CLI example: [examples/WokwiSimUART](/examples/WokwiSimUART)
+
+The simulator path preserves the drawing API, but it does not emulate the real electrical timing behavior of the HUB75 DMA engine.
 
 ## Adjusting Panel Brightness
 

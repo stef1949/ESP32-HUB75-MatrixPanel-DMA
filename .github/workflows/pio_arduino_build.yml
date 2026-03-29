@@ -24,6 +24,7 @@ jobs:
       matrix:
         framework: ["Arduino", "IDF"]
         no_gfx: ["", -DNO_GFX]
+        sim_backend: ["", -DHUB75_WOKWI_SIM]
 #       no_fast_functions: ["", -DNO_FAST_FUNCTIONS]
 #       no_cie1931: ["", -DNO_CIE1931]
 #       virtual_panel: ["", -DVIRTUAL_PANE]
@@ -51,7 +52,7 @@ jobs:
     - name: Run PlatformIO CI (Arduino)
       if: ${{ matrix.framework == 'Arduino'}}
       env: 
-        PLATFORMIO_BUILD_FLAGS: ${{ matrix.no_gfx }} ${{ matrix.no_fast_functions }} ${{ matrix.no_cie1931 }} ${{ matrix.virtual_panel }}
+        PLATFORMIO_BUILD_FLAGS: ${{ matrix.no_gfx }} ${{ matrix.sim_backend }} ${{ matrix.no_fast_functions }} ${{ matrix.no_cie1931 }} ${{ matrix.virtual_panel }}
         PLATFORMIO_CI_SRC: ${{ matrix.example }}
       run: pio ci -e esp32 -c ${{ matrix.example }}/platformio.ini
     - name: Run PlatformIO CI (ESP-IDF)

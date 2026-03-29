@@ -1,0 +1,3 @@
+Adafruit BusIO
+Adafruit GFX Library
+ESP32 HUB75 LED MATRIX PANEL DMA Display

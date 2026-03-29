@@ -4,6 +4,7 @@
 /* Core ESP32 hardware / idf includes!                                                 */
 #include <vector>
 #include <memory>
+#include <stdint.h>
 #include <esp_err.h>
 #include <esp_log.h>
 #include "esp_attr.h"
@@ -11,6 +12,8 @@
 
 // #include <Arduino.h>
 #include "platforms/platform_detect.hpp"
+#include "ESP32-HUB75-MatrixPanel-Backend.h"
+#include "ESP32-HUB75-MatrixPanel-WokwiSim.h"
 
 #ifdef USE_GFX_LITE
   // Slimmed version of Adafruit GFX + FastLED: https://github.com/mrcodetastic/GFX_Lite
@@ -81,6 +84,16 @@
 #endif
 
 #define PIXEL_COLOR_DEPTH_BITS_MAX 12
+
+#if defined(HUB75_WOKWI_SIM)
+#define HUB75_WOKWI_SIM_DEFAULT true
+#else
+#define HUB75_WOKWI_SIM_DEFAULT false
+#endif
+
+#ifndef HUB75_WOKWI_SIM_TX_PIN_DEFAULT
+#define HUB75_WOKWI_SIM_TX_PIN_DEFAULT 17
+#endif
 
 /***************************************************************************************/
 /* Definitions below should NOT be ever changed without rewriting library logic         */
@@ -315,6 +328,12 @@ struct HUB75_I2S_CFG
   // Set this to '1' to get all colour depths displayed with correct BCM time weighting.
   uint8_t min_refresh_rate;
 
+  // Route output to the Wokwi UART/custom-chip simulation backend instead of real HUB75 DMA.
+  bool use_wokwi_sim;
+
+  // UART TX pin used by the Wokwi sim backend.
+  int8_t wokwi_uart_tx_pin;
+
   // struct constructor
   HUB75_I2S_CFG(
       uint16_t _w = MATRIX_WIDTH,
@@ -331,8 +350,10 @@ struct HUB75_I2S_CFG
       uint8_t _latblk = DEFAULT_LAT_BLANKING, // Anything > 1 seems to cause artefacts on ICS panels
       bool _clockphase = true, 
       uint16_t _min_refresh_rate = 60, 
-      uint8_t _pixel_color_depth_bits = PIXEL_COLOR_DEPTH_BITS_DEFAULT) 
-      : mx_width(_w), mx_height(_h), chain_length(_chain), gpio(_pinmap), driver(_drv), double_buff(_dbuff), i2sspeed(_i2sspeed), latch_blanking(_latblk), clkphase(_clockphase), min_refresh_rate(_min_refresh_rate)
+      uint8_t _pixel_color_depth_bits = PIXEL_COLOR_DEPTH_BITS_DEFAULT,
+      bool _use_wokwi_sim = HUB75_WOKWI_SIM_DEFAULT,
+      int8_t _wokwi_uart_tx_pin = HUB75_WOKWI_SIM_TX_PIN_DEFAULT) 
+      : mx_width(_w), mx_height(_h), chain_length(_chain), gpio(_pinmap), driver(_drv), line_decoder(_line_drv), double_buff(_dbuff), i2sspeed(_i2sspeed), latch_blanking(_latblk), clkphase(_clockphase), min_refresh_rate(_min_refresh_rate), use_wokwi_sim(_use_wokwi_sim), wokwi_uart_tx_pin(_wokwi_uart_tx_pin)
   {
     setPixelColorDepthBits(_pixel_color_depth_bits);
   }
@@ -427,6 +448,17 @@ public:
     if (!config_set)
       return false;
 
+    if (m_cfg.use_wokwi_sim) {
+      sim_backend.reset(new WokwiSimBackend());
+      initialized = sim_backend->begin(m_cfg);
+      if (initialized) {
+        clearScreen();
+      }
+      return initialized;
+    }
+
+    sim_backend.reset();
+
     ESP_LOGI("begin()", "Using GPIO %d for R1_PIN", m_cfg.gpio.r1);
     ESP_LOGI("begin()", "Using GPIO %d for G1_PIN", m_cfg.gpio.g1);
     ESP_LOGI("begin()", "Using GPIO %d for B1_PIN", m_cfg.gpio.b1);
@@ -491,6 +523,8 @@ public:
   // Obj destructor
   virtual ~MatrixPanel_I2S_DMA()
   {
+    if (sim_backend)
+      return;
     dma_bus.release();
   }
 
@@ -618,6 +652,10 @@ public:
 
   inline void flipDMABuffer()
   {
+    if (sim_backend) {
+      sim_backend->flipBuffer();
+      return;
+    }
     if (!m_cfg.double_buff)
     {
       return;
@@ -645,6 +683,10 @@ public:
     }
 
     brightness = b;
+    if (sim_backend) {
+      sim_backend->setBrightness(b);
+      return;
+    }
     setBrightnessOE(b, 0);
 
     if (m_cfg.double_buff)
@@ -891,6 +933,8 @@ private:
   // Other private variables
   bool initialized = false;
   bool config_set = false;
+
+  std::unique_ptr<MatrixPanelBackend> sim_backend;
 
 }; // end Class header
 

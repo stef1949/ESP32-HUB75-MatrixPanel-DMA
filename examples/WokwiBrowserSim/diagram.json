@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "author": "ESP32-HUB75-MatrixPanel-DMA",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "chip-hub75-sim", "id": "sim", "top": -18, "left": 340, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:17", "sim:RX", "green", [ "h126", "v-22" ] ],
+    [ "esp:GND.1", "sim:GND", "black", [ "h120", "v0" ] ]
+  ],
+  "dependencies": {}
+}

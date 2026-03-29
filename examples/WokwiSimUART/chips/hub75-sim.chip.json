@@ -1,0 +1,12 @@
+{
+  "name": "HUB75 Sim Panel",
+  "author": "ESP32-HUB75-MatrixPanel-DMA",
+  "pins": [
+    "RX",
+    "GND"
+  ],
+  "display": {
+    "width": 1024,
+    "height": 512
+  }
+}
