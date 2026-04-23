@@ -46,7 +46,7 @@ void loop() {
   display.setCursor(1, 10);
   display.print("I2S DMA");
   display.setCursor(1, 20);
-  display.print("V. 3.0.14");
+  display.print("V. 3.0.15");
 
   display.drawRect(0, 0, display.width(), display.height(), display.color565(0, 0, 0));
   display.flipDMABuffer();
