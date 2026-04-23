@@ -42,7 +42,11 @@ void loop() {
 */
   display.setCursor(1, 1);
   display.setTextColor(display.color565(255, 255, 255));
-  display.print("Wokwi SIM");
+  display.print("MatrixPanel");
+  display.setCursor(1, 10);
+  display.print("I2S DMA");
+  display.setCursor(1, 20);
+  display.print("V. 3.0.14");
 
   display.drawRect(0, 0, display.width(), display.height(), display.color565(0, 0, 0));
   display.flipDMABuffer();
